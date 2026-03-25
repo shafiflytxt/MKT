@@ -1,0 +1,718 @@
+openapi: 3.0.3
+
+info:
+  title: NEON-dX MKT Inbound Integration API
+  version: "1.0.0"
+  description: |
+    ## Overview
+    This API specification covers the **NEON-dX Inbound Integration REST APIs** for MKT,
+    specifically the **Get Offers (v2)** and **Accept Offer** APIs.
+
+    The integration enables MKT inbound touchpoints to:
+    - Retrieve personalized, rich media offers from the NEON-DX recommendation engine.
+    - Notify NEON-DX when a customer accepts an offer, triggering downstream conversion and fulfilment events.
+
+    ## Authentication
+    All API requests require **two layers of authentication**:
+    1. **Basic Auth** — Pass `Authorization: Basic <base64(username:password)>` in the HTTP header.
+    2. **Auth Key** — A per-channel authentication key embedded in the URL path as `/rest/authkey/<authKey>/`.
+
+    Both must be present for every request. The auth key is validated per request with IP whitelisting on the NEON-DX API gateway.
+
+    ## URL Format
+    ```
+    <PROTOCOL>://<IP_ADDRESS>:<CONNECTOR_PORT>/rest/authkey/<authKey>/<APIspecificString>?[Parameters]
+    ```
+
+    ## Supported Formats
+    Requests and responses are supported in **JSON** (default) and **XML** formats.
+    Specify the `Accept` header to control the format:
+    - `application/json` (default)
+    - `application/xml`
+
+    ## Channel Auth Keys
+    | Channel Name   | Auth Key (Production)          |
+    |----------------|-------------------------------|
+    | APP            | `<Will be provided by Flytxt>` |
+    | CRM / Maxis    | `<Will be provided by Flytxt>` |
+    | OneCC          | `<Will be provided by Flytxt>` |
+    | Online Shop    | `<Will be provided by Flytxt>` |
+
+    ## Document Reference
+    - **Document Title:** Inbound Integration Design in NEON-DX for MKT
+    - **Version:** V1.0  |  **Status:** Final  |  **Date:** 25-03-2026
+    - **Author:** Shafi Kodidala (Flytxt)
+
+servers:
+  - url: "https://{host}:{port}/rest/authkey/{authKey}"
+    description: Production HTTPS Endpoint
+    variables:
+      host:
+        default: "neon-dx-prod.example.com"
+        description: NEON-DX API server hostname or IP address
+      port:
+        default: "443"
+        description: API connector port number
+      authKey:
+        default: "bestOfferussd"
+        description: >
+          Authentication key issued by NEON-DX admin for each MKT channel/touchpoint.
+          Example values: bestOfferussd, NEON_UI. This key is validated with IP whitelisting.
+
+  - url: "http://{host}:{port}/rest/authkey/{authKey}"
+    description: Non-Production / SIT HTTP Endpoint
+    variables:
+      host:
+        default: "neon-dx-sit.example.com"
+        description: NEON-DX SIT server hostname or IP address
+      port:
+        default: "8080"
+        description: API connector port number
+      authKey:
+        default: "bestOfferussd"
+        description: Auth key for SIT environment (separate from production)
+
+components:
+  securitySchemes:
+    BasicAuth:
+      type: http
+      scheme: basic
+      description: >
+        HTTP Basic Authentication. Encode `username:password` in Base64 and
+        pass as `Authorization: Basic <encoded>`.
+        Example: `Authorization: Basic YXBpdXNlcjphcGlwYXNzd29yZA==`
+
+  schemas:
+    StatusObject:
+      type: object
+      description: Top-level response status returned by all API operations.
+      properties:
+        code:
+          type: integer
+          description: >
+            HTTP-aligned status code.
+            - 200: Success
+            - 205: No Offers Available (Get Offers only)
+            - 400: Bad Request
+            - 401: Authentication Failed
+            - 404: Invalid MSISDN / Resource Not Found
+            - 499: Failed
+            - 500: Internal Server Error
+          example: 200
+        message:
+          type: string
+          description: Human-readable description corresponding to the status code.
+          example: "Success"
+      required:
+        - code
+        - message
+
+    SubAttribute:
+      type: object
+      description: >
+        A nested key-value pair used within productAttributes or offerAttributes
+        to represent structured benefit details (e.g., usage_leg, type, value).
+      properties:
+        name:
+          type: string
+          description: Name of the sub-attribute.
+          example: "usage_leg"
+        value:
+          type: string
+          description: Value of the sub-attribute.
+          example: "Local voice"
+      required:
+        - name
+        - value
+
+    Attribute:
+      type: object
+      description: >
+        A dynamic key-value attribute with optional nested sub-attributes.
+        Used in both offerAttributes and productAttributes.
+        New attributes can be added at runtime by business without code change.
+      properties:
+        attributeName:
+          type: string
+          description: Name of the attribute (e.g., "Bundle ID", "price", "validity").
+          example: "Bundle ID"
+        value:
+          type: string
+          description: Value of the attribute.
+          example: "1195"
+        subAttributes:
+          type: array
+          description: Nested sub-attributes; mostly empty except for "benefit" attribute.
+          items:
+            $ref: '#/components/schemas/SubAttribute'
+          example: []
+      required:
+        - attributeName
+        - value
+        - subAttributes
+
+    Action:
+      type: object
+      description: >
+        A call-to-action element rendered alongside a rich media creative.
+        NEON-DX supports a maximum of 3 actions per creative.
+      properties:
+        label:
+          type: string
+          description: Display label for the action button or link shown to the customer.
+          example: "More Info"
+        url:
+          type: string
+          format: uri
+          description: Hyperlink URL the customer is taken to when clicking the action.
+          example: "https://www.exampleTelecom.com/products/data/d87876547"
+      required:
+        - label
+        - url
+
+    Creative:
+      type: object
+      description: >
+        Customer-facing display content for an offer. Supports two types:
+        - `text`: Title + description text only (no mediaUrl).
+        - `image`: Title + description + mediaUrl (rich media) + optional actions.
+        Multiple language variants can be returned per offer.
+      properties:
+        language:
+          type: string
+          description: Language of the creative content.
+          example: "English (UK)"
+        isCustomerPreferred:
+          type: string
+          description: Whether this language matches the customer's preferred language. Values are "Yes" or "No".
+          enum: ["Yes", "No"]
+          example: "No"
+        isDefault:
+          type: boolean
+          description: Indicates whether this is the default creative to display.
+          example: true
+        type:
+          type: string
+          description: >
+            Format of the creative content.
+            - `text`: Plain text title + description; no mediaUrl present.
+            - `image`: Rich media with mediaUrl + optional actions array.
+          enum: ["text", "image"]
+          example: "text"
+        title:
+          type: string
+          description: Short display title for the offer shown to the customer.
+          example: "3000F = 24Go+300mn-30j"
+        description:
+          type: string
+          description: Full offer description displayed to the customer.
+          example: "24Go + 300mn ts reseaux valable 30j a 3000F"
+        mediaUrl:
+          type: string
+          format: uri
+          description: >
+            URL of the rich media image or creative asset.
+            **Present only when type = "image".**
+          example: "https://www.exampleTelecom.com/images/mobileData3.jpeg"
+        actions:
+          type: array
+          description: >
+            Array of action buttons/links to render with the creative.
+            **Present only when type = "image".**
+            Maximum 3 actions are supported.
+          maxItems: 3
+          items:
+            $ref: '#/components/schemas/Action'
+      required:
+        - language
+        - isCustomerPreferred
+        - isDefault
+        - type
+        - title
+        - description
+
+    Product:
+      type: object
+      description: A product item included within an offer.
+      properties:
+        productName:
+          type: string
+          description: Name of the product.
+          example: "Promo_Illimax_3000F"
+        productId:
+          type: string
+          description: Unique product identifier.
+          example: "1135"
+        productDescription:
+          type: string
+          description: Description of the product.
+          example: "Promo_Illimax_3000F"
+        productAttributes:
+          type: array
+          description: >
+            Dynamic list of product attributes (e.g., price, validity, scope, benefit).
+            The "benefit" attribute contains nested subAttributes (usage_leg, type, value).
+          items:
+            $ref: '#/components/schemas/Attribute'
+      required:
+        - productName
+        - productId
+        - productDescription
+        - productAttributes
+
+    OfferDetails:
+      type: object
+      description: Detailed information about a single offer including attributes, products, and creatives.
+      properties:
+        offerName:
+          type: string
+          description: Name of the offer as configured in NEON-DX.
+          example: "Promo_Illimax_3000F_mandatory"
+        offerInternalId:
+          type: integer
+          description: Internal system identifier for the offer.
+          example: 2065
+        offerType:
+          type: string
+          description: Category/type of the offer (e.g., stv, recharge, informational).
+          example: "stv"
+        offerAttributes:
+          type: array
+          description: >
+            Dynamic offer-level attributes. Business can define new attributes
+            without any code change at NEON-dX.
+          items:
+            $ref: '#/components/schemas/Attribute'
+        products:
+          type: array
+          description: List of product items included under this offer.
+          items:
+            $ref: '#/components/schemas/Product'
+        creatives:
+          type: array
+          description: >
+            Display content variants for the offer (one or more language variants).
+            May be text-only or rich media (image + actions).
+          items:
+            $ref: '#/components/schemas/Creative'
+      required:
+        - offerName
+        - offerInternalId
+        - offerType
+        - offerAttributes
+        - products
+        - creatives
+
+    Offer:
+      type: object
+      description: A single personalized offer returned by the Get Offers v2 API.
+      properties:
+        position:
+          type: integer
+          description: >
+            Ranking/ordering of the offer in the response list.
+            Lower number = higher priority recommendation.
+          example: 1
+        id:
+          type: integer
+          description: Unique offer identifier in NEON-DX.
+          example: 1229
+        ruleName:
+          type: string
+          description: Name of the recommendation rule that generated this offer.
+          example: "ROS_Promo_Illimax_3000F_Mandatory_3_Local_Inbound_V2"
+        programId:
+          type: integer
+          description: Identifier of the NEON-DX program associated with this offer.
+          example: 1009
+        programName:
+          type: string
+          description: Name of the NEON-DX program under which the offer was created.
+          example: "NBO_Inbound_Program_Mandatory Offer"
+        offerDetails:
+          $ref: '#/components/schemas/OfferDetails'
+      required:
+        - position
+        - id
+        - ruleName
+        - programId
+        - programName
+        - offerDetails
+
+    GetOffersSuccessResponse:
+      type: object
+      description: Successful response from the Get Offers v2 API containing ranked offers.
+      properties:
+        status:
+          $ref: '#/components/schemas/StatusObject'
+        Offers:
+          type: array
+          description: Ordered list of personalized offers for the customer on the touchpoint.
+          items:
+            $ref: '#/components/schemas/Offer'
+      required:
+        - status
+        - Offers
+
+    GetOffersNoOffersResponse:
+      type: object
+      description: Response when no eligible offers are available for the customer.
+      properties:
+        status:
+          $ref: '#/components/schemas/StatusObject'
+
+    EventItem:
+      type: object
+      description: >
+        A single event record submitted to NEON-DX to register a customer interaction.
+        For the Offer Accepted event, use event id = 104.
+      properties:
+        id:
+          type: string
+          description: >
+            Event identifier. Use **"104"** for the Offer Accepted event.
+            This triggers the conversion and fulfilment event chain in NEON-DX.
+          example: "104"
+        type:
+          type: string
+          description: >
+            Type of event / touchpoint name where the acceptance occurred.
+            Examples: WEB, APP, IVR, USSD, CRM, USSD, OneCC, OnlineShop.
+          example: "WEB"
+        value:
+          type: string
+          description: >
+            Comma-separated values in the format: `<offerId>[,<Agent>,<Remarks>]`.
+            - **offerId** (Mandatory): The `id` field from the Get Offers response.
+            - **Agent** (Optional): Name of the agent who assisted the customer.
+            - **Remarks** (Optional): Free-text remarks about the acceptance.
+          example: "16279,AgentName,Accepted"
+        date:
+          type: string
+          description: >
+            Date and time the acceptance event occurred.
+            **Format:** `yyyy-MM-dd HH:mm:ss Z` (ISO 8601 with timezone offset).
+          pattern: '^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} [+-]\d{4}$'
+          example: "2026-03-12 10:30:00 +0530"
+      required:
+        - id
+        - type
+        - value
+        - date
+
+    AcceptOfferRequest:
+      type: object
+      description: Request payload for the Accept Offer API. Wraps one or more event items.
+      properties:
+        event:
+          type: array
+          description: Array of event objects. Typically contains one Offer Accepted event (id=104).
+          items:
+            $ref: '#/components/schemas/EventItem'
+          minItems: 1
+      required:
+        - event
+
+    ErrorResponse:
+      type: object
+      description: Standard error response returned when an API call fails.
+      properties:
+        status:
+          $ref: '#/components/schemas/StatusObject'
+
+  parameters:
+    MsisdnPath:
+      name: msisdn
+      in: path
+      required: true
+      description: >
+        Customer's mobile subscriber number (MSISDN) used as the primary identity.
+        Must be a valid numeric MSISDN present in NEON-DX.
+      schema:
+        type: string
+        pattern: '^\d{7,15}$'
+      example: "9812000012"
+
+    IdentityAttributeNamePath:
+      name: identityAttributeName
+      in: path
+      required: true
+      description: >
+        Name of the identity attribute used instead of MSISDN.
+      schema:
+        type: string
+      example: "app_ID"
+
+    IdentityAttributeValuePath:
+      name: identityAttributeValue
+      in: path
+      required: true
+      description: >
+        Value of the identity attribute for the customer.
+      schema:
+        type: string
+      example: "xfgt56tra7685"
+
+    CategoryQuery:
+      name: category
+      in: query
+      required: false
+      description: >
+        Filter offers by offer category name.
+        Only offers belonging to this category will be returned.
+      schema:
+        type: string
+      example: "Data"
+
+    SubCategoryQuery:
+      name: sub-category
+      in: query
+      required: false
+      description: >
+        Filter offers by offer sub-category name.
+        Applied in conjunction with the `category` filter.
+      schema:
+        type: string
+      example: "Daily"
+
+    SizeQuery:
+      name: size
+      in: query
+      required: false
+      description: >
+        Maximum number of offers to return in the response.
+        If not specified, the system default is used.
+      schema:
+        type: integer
+        minimum: 1
+      example: 5
+
+    EventArchivingQuery:
+      name: eventArchiving
+      in: query
+      required: false
+      description: >
+        Controls whether an **Offer Recommendation event** is created for the returned offers.
+        - `true` (default): An Offer Recommendation event is recorded in NEON-DX.
+        - `false`: Suppresses event creation (use for test/debug calls).
+      schema:
+        type: boolean
+        default: true
+      example: true
+
+  responses:
+    Unauthorized:
+      description: >
+        **401 Authentication Failed** — The authkey is invalid, expired, or the
+        request originates from a non-whitelisted IP address.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+
+    BadRequest:
+      description: >
+        **400 Bad Request** — The request is malformed, missing mandatory fields,
+        or contains an invalid filter operation value.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+
+    NotFound:
+      description: >
+        **404 Invalid MSISDN / Resource Not Found** — The MSISDN is not present in
+        NEON-DX, is in an invalid format (e.g., non-numeric), or the resource cannot be found.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+
+    InternalServerError:
+      description: >
+        **500 Internal Server Error** — An unexpected error occurred on the NEON-DX server.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+
+security:
+  - BasicAuth: []
+
+tags:
+  - name: Get Offers
+    description: >
+      Retrieve personalized, rich media offers for a customer on a specific MKT inbound touchpoint.
+      Uses MSISDN or a configured identity attribute as the customer identifier.
+  - name: Accept Offer
+    description: >
+      Notify NEON-DX that a customer has accepted an offer, triggering the
+      conversion and fulfilment event chain (event id = 104).
+
+paths:
+  /msisdn/{msisdn}/v2/offers:
+    get:
+      tags:
+        - Get Offers
+      summary: Get Offers v2 (by MSISDN)
+      operationId: getOffersByMsisdn
+      description: |
+        Retrieves a ranked list of personalized, rich media offers for a customer
+        identified by their **MSISDN** on a specific MKT inbound touchpoint.
+
+        ### How It Works
+        1. The channel sends a GET request with the customer's MSISDN and authkey.
+        2. NEON-DX recommendation engine evaluates eligible offers for that customer.
+        3. An ordered list of rich media offers is returned with creatives (text or image),
+           product attributes, and action URLs.
+        4. The touchpoint renders and displays the offers to the customer.
+
+        ### Filter Operations
+        All attribute filters support the following operations:
+        - `EQ` (default) — Equal to
+        - `LT` — Less than
+        - `LE` — Less than or equal to
+        - `GT` — Greater than
+        - `GE` — Greater than or equal to
+        - `BT` — Between (requires lowval and highval)
+        - `ANYOF` — Matches any of the provided values
+
+        ### Example URLs
+        ```
+        # Basic call
+        GET /rest/authkey/NEON_UI/msisdn/9812000012/v2/offers
+
+        # Filter by category
+        GET /rest/authkey/NEON_UI/msisdn/9812000012/v2/offers?category=Data
+
+        # Limit results
+        GET /rest/authkey/NEON_UI/msisdn/9812000012/v2/offers?size=3
+
+        # Suppress event archiving
+        GET /rest/authkey/NEON_UI/msisdn/9812000012/v2/offers?eventArchiving=false
+        ```
+      parameters:
+        - $ref: '#/components/parameters/MsisdnPath'
+        - $ref: '#/components/parameters/CategoryQuery'
+        - $ref: '#/components/parameters/SubCategoryQuery'
+        - $ref: '#/components/parameters/SizeQuery'
+        - $ref: '#/components/parameters/EventArchivingQuery'
+      responses:
+        '200':
+          description: Success - Personalized offers retrieved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GetOffersSuccessResponse'
+        '205':
+          description: No offers available for the customer
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GetOffersNoOffersResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /identity/{identityAttributeName}/{identityAttributeValue}/v2/offers:
+    get:
+      tags:
+        - Get Offers
+      summary: Get Offers v2 (by Identity Attribute)
+      operationId: getOffersByIdentityAttribute
+      description: |
+        Retrieves a ranked list of personalized, rich media offers for a customer
+        identified by a **custom identity attribute** (e.g., app_ID, customer_ID)
+        instead of MSISDN on a specific MKT inbound touchpoint.
+
+        This endpoint is useful when the channel uses alternative customer identifiers.
+      parameters:
+        - $ref: '#/components/parameters/IdentityAttributeNamePath'
+        - $ref: '#/components/parameters/IdentityAttributeValuePath'
+        - $ref: '#/components/parameters/CategoryQuery'
+        - $ref: '#/components/parameters/SubCategoryQuery'
+        - $ref: '#/components/parameters/SizeQuery'
+        - $ref: '#/components/parameters/EventArchivingQuery'
+      responses:
+        '200':
+          description: Success - Personalized offers retrieved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GetOffersSuccessResponse'
+        '205':
+          description: No offers available for the customer
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GetOffersNoOffersResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /event:
+    post:
+      tags:
+        - Accept Offer
+      summary: Accept Offer
+      operationId: acceptOffer
+      description: |
+        Notifies NEON-DX that a customer has **accepted an offer**, triggering the
+        conversion and fulfilment event chain.
+
+        ### How It Works
+        1. After the customer accepts an offer on the touchpoint, the channel sends a POST request.
+        2. The request includes the offer ID, event type, optional agent name, and timestamp.
+        3. NEON-DX records the acceptance event with event id = 104.
+        4. Downstream conversion and fulfilment processes are triggered automatically.
+
+        ### Event Format
+        The request body must contain an `event` array with at least one `EventItem` object.
+        Each EventItem specifies:
+        - **id**: "104" (Offer Accepted event)
+        - **type**: Touchpoint name (WEB, APP, USSD, CRM, OneCC, OnlineShop, IVR)
+        - **value**: Comma-separated format `<offerId>[,<Agent>,<Remarks>]`
+        - **date**: ISO 8601 timestamp with timezone
+
+        ### Example Request
+        ```json
+        {
+          "event": [
+            {
+              "id": "104",
+              "type": "WEB",
+              "value": "1229,AgentName,Accepted via Web Portal",
+              "date": "2026-03-12 10:30:00 +0530"
+            }
+          ]
+        }
+        ```
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AcceptOfferRequest'
+      responses:
+        '200':
+          description: Success - Offer acceptance event recorded
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GetOffersSuccessResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
