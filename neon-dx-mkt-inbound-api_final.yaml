@@ -643,11 +643,11 @@ components:
         |----------------|-----------|-------------|
         | `offer.BundleID` | string | Unique bundle/package/addon ID |
         | `offer.category` | string | Offer category |
-        | `offer.Price` | number | Price of the bundle/package/addon |
+        | `offer.price` | number | Price of the bundle/package/addon |
 
         **Examples:**
-        - `offer.Price=90` → returns offers with price = 90 (default EQ operation)
-        - `offer.Price=90&offer.Price.operation=GT` → offers with price > 90
+        - `offer.price=90` → returns offers with price = 90 (default EQ operation)
+        - `offer.price=90&offer.price.operation=GT` → offers with price > 90
         - `offer.category=Data` → offers in Data category
 
         **Note:** Combine with `offer.{attribute}.operation` for non-equality comparisons.
@@ -664,13 +664,13 @@ components:
 
         | Operation | Description | Example |
         |-----------|-------------|---------|
-        | `EQ` | Equal to (default) | `offer.Price=90` or `offer.Price=90&offer.Price.operation=EQ` |
-        | `LT` | Less than | `offer.Price=90&offer.Price.operation=LT` |
-        | `LE` | Less than or equal to | `offer.Price=90&offer.Price.operation=LE` |
-        | `GT` | Greater than | `offer.Price=90&offer.Price.operation=GT` |
-        | `GE` | Greater than or equal to | `offer.Price=90&offer.Price.operation=GE` |
-        | `BT` | Between (numeric only) — requires `lowval` and `highval` | `offer.Price.lowval=10&offer.Price.highval=100&offer.Price.operation=BT` |
-        | `ANYOF` | Case-sensitive match with any of multiple values | `offer.Price=90&offer.Price=100&offer.Price.operation=ANYOF` |
+        | `EQ` | Equal to (default) | `offer.price=90` or `offer.price=90&offer.price.operation=EQ` |
+        | `LT` | Less than | `offer.price=90&offer.price.operation=LT` |
+        | `LE` | Less than or equal to | `offer.price=90&offer.price.operation=LE` |
+        | `GT` | Greater than | `offer.price=90&offer.price.operation=GT` |
+        | `GE` | Greater than or equal to | `offer.price=90&offer.price.operation=GE` |
+        | `BT` | Between (numeric only) — requires `lowval` and `highval` | `offer.price.lowval=10&offer.price.highval=100&offer.price.operation=BT` |
+        | `ANYOF` | Case-sensitive match with any of multiple values | `offer.price=90&offer.price=100&offer.price.operation=ANYOF` |
       schema:
         type: string
         enum: [EQ, LT, LE, GT, GE, BT, ANYOF]
@@ -685,7 +685,7 @@ components:
         Lower bound value for the `BT` (Between) operation on a numeric offer attribute.
         Must be used together with `offer.{attribute}.highval` and `offer.{attribute}.operation=BT`.
 
-        **Example:** `offer.Price.lowval=10&offer.Price.highval=100&offer.Price.operation=BT`
+        **Example:** `offer.price.lowval=10&offer.price.highval=100&offer.price.operation=BT`
       schema:
         type: number
       example: 10
@@ -698,7 +698,7 @@ components:
         Upper bound value for the `BT` (Between) operation on a numeric offer attribute.
         Must be used together with `offer.{attribute}.lowval` and `offer.{attribute}.operation=BT`.
 
-        **Example:** `offer.Price.lowval=10&offer.Price.highval=100&offer.Price.operation=BT`
+        **Example:** `offer.price.lowval=10&offer.price.highval=100&offer.price.operation=BT`
       schema:
         type: number
       example: 100
@@ -895,7 +895,7 @@ paths:
 
         ### Offer Attribute Filters
         Filters allow the channel to narrow returned offers:
-        - **By offer attribute:** `offer.<attributeName>=<value>` (e.g., `offer.Price=90`)
+        - **By offer attribute:** `offer.<attributeName>=<value>` (e.g., `offer.price=90`)
         - **By product attribute:** `product.<attributeName>=<value>` (e.g., `product.price=100`)
         - **By product sub-attribute:** `product.<attr>.<subAttr>=<value>` (e.g., `product.benefits.datavolume=100`)
 
@@ -924,10 +924,10 @@ paths:
         GET /rest/authkey/NEON_UI/msisdn/9812000012/v2/offers?product.benefits.datavolume=100
 
         # Filter offers with price between 10 and 100
-        GET /rest/authkey/NEON_UI/msisdn/9812000012/v2/offers?offer.Price.lowval=10&offer.Price.highval=100&offer.Price.operation=BT
+        GET /rest/authkey/NEON_UI/msisdn/9812000012/v2/offers?offer.price.lowval=10&offer.price.highval=100&offer.price.operation=BT
 
         # Return any of multiple prices
-        GET /rest/authkey/NEON_UI/msisdn/9812000012/v2/offers?offer.Price=90&offer.Price=100&offer.Price.operation=ANYOF
+        GET /rest/authkey/NEON_UI/msisdn/9812000012/v2/offers?offer.price=90&offer.price=100&offer.price.operation=ANYOF
 
         # Limit results and suppress event archiving
         GET /rest/authkey/NEON_UI/msisdn/9812000012/v2/offers?size=3&eventArchiving=false
@@ -969,36 +969,36 @@ paths:
             type: string
             enum: [EQ, ANYOF]
             default: EQ
-        - name: "offer.Price"
+        - name: "offer.price"
           in: query
           required: false
           description: >
-            Filter by offer Price (numeric). Use `offer.Price.operation` for non-equality comparisons.
-            For ANYOF, repeat this parameter: `offer.Price=90&offer.Price=100&offer.Price.operation=ANYOF`.
-            For BT, use `offer.Price.lowval` and `offer.Price.highval`.
+            Filter by offer Price (numeric). Use `offer.price.operation` for non-equality comparisons.
+            For ANYOF, repeat this parameter: `offer.price=90&offer.price=100&offer.price.operation=ANYOF`.
+            For BT, use `offer.price.lowval` and `offer.price.highval`.
           schema:
             type: number
           example: 3000
-        - name: "offer.Price.operation"
+        - name: "offer.price.operation"
           in: query
           required: false
-          description: Comparison operation for `offer.Price` filter.
+          description: Comparison operation for `offer.price` filter.
           schema:
             type: string
             enum: [EQ, LT, LE, GT, GE, BT, ANYOF]
             default: EQ
           example: "GE"
-        - name: "offer.Price.lowval"
+        - name: "offer.price.lowval"
           in: query
           required: false
-          description: Lower bound for `offer.Price` with `operation=BT`.
+          description: Lower bound for `offer.price` with `operation=BT`.
           schema:
             type: number
           example: 500
-        - name: "offer.Price.highval"
+        - name: "offer.price.highval"
           in: query
           required: false
-          description: Upper bound for `offer.Price` with `operation=BT`.
+          description: Upper bound for `offer.price` with `operation=BT`.
           schema:
             type: number
           example: 3000
@@ -1245,25 +1245,25 @@ paths:
           description: Filter by offer category.
           schema:
             type: string
-        - name: "offer.Price"
+        - name: "offer.price"
           in: query
           required: false
           description: Filter by offer Price.
           schema:
             type: number
-        - name: "offer.Price.operation"
+        - name: "offer.price.operation"
           in: query
           required: false
           schema:
             type: string
             enum: [EQ, LT, LE, GT, GE, BT, ANYOF]
             default: EQ
-        - name: "offer.Price.lowval"
+        - name: "offer.price.lowval"
           in: query
           required: false
           schema:
             type: number
-        - name: "offer.Price.highval"
+        - name: "offer.price.highval"
           in: query
           required: false
           schema:
